@@ -6,17 +6,16 @@ from torchvision import models
 from tqdm import tqdm
 import normalize
 
-# Definir un modelo (por ejemplo, ResNet18 preentrenado para reconocimiento de emociones)
+# Definir un modelo
 class EmotionRecognitionModel(nn.Module):
     def __init__(self, num_classes=8):
         super(EmotionRecognitionModel, self).__init__()
-        self.model = models.resnet18(pretrained=True)  # Usar ResNet18 preentrenado
+        self.model = models.resnet18(pretrained=True)
         self.model.fc = nn.Linear(self.model.fc.in_features, num_classes)  # Cambiar la capa final para clasificación en 8 clases
 
     def forward(self, x):
         return self.model(x)
 
-# Proteger el código principal
 if __name__ == '__main__':
     # Hiperparámetros y configuración
     num_epochs = 6
@@ -34,7 +33,7 @@ if __name__ == '__main__':
     model = model.to(device)
 
     # Inicializar DataLoaders
-    max_images_per_class = 2500  # Cambia este valor al número máximo deseado
+    max_images_per_class = 2500
 
     train_dataset = normalize.EmotionDataset(os.path.join(normalize.data_dir, "train"), max_images_per_class=max_images_per_class)
     val_dataset = normalize.EmotionDataset(os.path.join(normalize.data_dir, "val"), max_images_per_class=max_images_per_class)
@@ -44,7 +43,7 @@ if __name__ == '__main__':
     # Entrenamiento del modelo
     for epoch in range(num_epochs):
         print(f"Epoch {epoch+1}/{num_epochs}")
-        model.train()  # Modo de entrenamiento
+        model.train()
 
         running_loss = 0.0
         for images, labels in tqdm(train_loader):
