@@ -8,7 +8,8 @@ import matplotlib.pyplot as plt
 import torchvision
 
 # Ruta a la carpeta raíz de tu dataset
-data_dir = r"C:\Clase\TFG\data"
+#data_dir = r"C:\Clase\TFG\data"
+data_dir = r"D:\Clase\UAB\TFG\data"
 
 # Definir el Dataset personalizado
 class EmotionDataset(Dataset):
