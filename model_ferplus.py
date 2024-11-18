@@ -10,7 +10,7 @@ import torch.optim as optim
 from tqdm import tqdm
 import csv
 
-# Dataset FERPlus
+# Dataset FERPlus amb nova regla d'emoció dominant
 class FERPlusDataset(Dataset):
     def __init__(self, data_dir, subset, transform=None):
         self.data_dir = data_dir
@@ -18,17 +18,54 @@ class FERPlusDataset(Dataset):
         self.transform = transform
         self.labels_path = os.path.join(data_dir, f"FER2013{self.subset}", "label.csv")
         self.data = pd.read_csv(self.labels_path)
+        self.emotion_labels = [
+            "Neutral", "Happiness", "Surprise", "Sadness",
+            "Anger", "Disgust", "Fear", "Contempt", "Unknown", "Non-Face"
+        ]
+
+        # Filtrar les files amb etiquetes "Unknown"
+        self.filtered_data = self.data[self.data.apply(self._filter_unknown, axis=1)].reset_index(drop=True)
+    
+    def _filter_unknown(self, row):
+        labels = row.iloc[2:].values.astype(int)
+        sorted_indices = labels.argsort()[-2:]  # Índexs de les dues emocions més votades
+        most_voted = sorted_indices[-1]
+        second_most_voted = sorted_indices[-2]
+
+        # Determinem si és "Unknown"
+        if labels[most_voted] >= labels[second_most_voted] + 3:
+            emotion_idx = most_voted
+        else:
+            emotion_idx = self.emotion_labels.index("Unknown")
+
+        # Filtrar fora etiquetes "Unknown"
+        return emotion_idx != self.emotion_labels.index("Unknown")
     
     def __len__(self):
-        return len(self.data)
+        return len(self.filtered_data)
     
     def __getitem__(self, idx):
-        img_name = os.path.join(self.data_dir, f"FER2013{self.subset}", self.data.iloc[idx, 0])
+        img_name = os.path.join(self.data_dir, f"FER2013{self.subset}", self.filtered_data.iloc[idx, 0])
         image = Image.open(img_name).convert("RGB")
-        labels = self.data.iloc[idx, 2:].values.astype(float)
+        labels = self.filtered_data.iloc[idx, 2:].values.astype(int)
+
+        # Determinem l'emoció dominant
+        sorted_indices = labels.argsort()[-2:]  # Índexs de les dues emocions més votades
+        most_voted = sorted_indices[-1]
+        second_most_voted = sorted_indices[-2]
+
+        if labels[most_voted] >= labels[second_most_voted] + 3:
+            emotion_idx = most_voted
+        else:
+            emotion_idx = self.emotion_labels.index("Unknown")  # Això ja no passarà perquè es filtra abans
+
+        # Creem un one-hot vector per a l'etiqueta
+        one_hot_label = torch.zeros(len(self.emotion_labels))
+        one_hot_label[emotion_idx] = 1
+
         if self.transform:
             image = self.transform(image)
-        return image, labels
+        return image, one_hot_label
 
 # Model amb Dropout i 10 classes
 class FERPlusResNet(nn.Module):
@@ -69,6 +106,10 @@ def train_model(data_dir, batch_size=32, lr=0.001, num_epochs=10, dropout_rate=0
     model = FERPlusResNet(num_classes=10, dropout_rate=dropout_rate)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
+    if torch.cuda.is_available():
+        print(f"GPU disponible: {torch.cuda.get_device_name(0)}")
+    else:
+        print("No se detectó GPU.")
 
     # Configuració de pèrdua i optimitzador
     criterion = nn.CrossEntropyLoss()
@@ -131,12 +172,7 @@ if __name__ == "__main__":
 
     # Configuracions a provar
     configs = [
-        {"batch_size": 64, "lr": 0.001, "num_epochs": 50, "dropout_rate": 0.3},
-        {"batch_size": 64, "lr": 0.001, "num_epochs": 50, "dropout_rate": 0.5},
-        {"batch_size": 64, "lr": 0.001, "num_epochs": 50, "dropout_rate": 0.2},
-        {"batch_size": 64, "lr": 0.0005, "num_epochs": 50, "dropout_rate": 0.3},
-        {"batch_size": 64, "lr": 0.0005, "num_epochs": 50, "dropout_rate": 0.5},
-        {"batch_size": 64, "lr": 0.0005, "num_epochs": 50, "dropout_rate": 0.2},
+        {"batch_size": 64, "lr": 0.001, "num_epochs": 50, "dropout_rate": 0.3}
     ]
 
     # Entrenar cada configuració

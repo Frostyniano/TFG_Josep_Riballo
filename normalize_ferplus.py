@@ -1,64 +1,58 @@
 import os
 import pandas as pd
-from PIL import Image
-from torch.utils.data import Dataset
-from torchvision import transforms
+from collections import defaultdict
 
-class FERPlusDataset(Dataset):
-    def __init__(self, data_dir, subset, transform=None):
+class FERPlusDataset:
+    def __init__(self, data_dir, subset):
         """
         Args:
             data_dir (str): Carpeta base del dataset (ex. D:/Clase/UAB/TFG/FERPlus)
             subset (str): Subconjunt a utilitzar ('Train', 'Valid', 'Test')
-            transform (callable, optional): Transformacions a aplicar a les imatges
         """
         self.data_dir = data_dir
         self.subset = subset
-        self.transform = transform
         
         # Ruta del fitxer CSV d'etiquetes
-        self.labels_path = os.path.join(data_dir, "data", f"FER2013{self.subset}", "label.csv")
+        self.labels_path = os.path.join(data_dir, f"FER2013{self.subset}", "label.csv")
         self.data = pd.read_csv(self.labels_path)  # Carrega les etiquetes des del CSV
 
-    def __len__(self):
-        """Retorna el nombre total d'imatges en el conjunt."""
-        return len(self.data)
-    
-    def __getitem__(self, idx):
+    def count_images_per_emotion(self):
         """
-        Retorna una imatge i les seves etiquetes corresponents.
+        Compta el nombre d'imatges assignades a cada emoció segons la nova regla.
         """
-        # Construcció del camí de la imatge
-        img_name = os.path.join(
-            self.data_dir,f"FER2013{self.subset}", self.data.iloc[idx, 0]
-        )
-        image = Image.open(img_name).convert("RGB")
+        emotion_counts = defaultdict(int)
+        emotion_labels = [
+            "Neutral", "Happiness", "Surprise", "Sadness",
+            "Anger", "Disgust", "Fear", "Contempt", "Unknown", "Non-Face"
+        ]
         
-        # Carregar les etiquetes (a partir de la tercera columna)
-        labels = self.data.iloc[idx, 2:].values.astype(float)
-        
-        # Aplicar transformacions si existeixen
-        if self.transform:
-            image = self.transform(image)
-        
-        return image, labels
+        # Recorrem cada fila del CSV per determinar l'emoció dominant segons la nova regla
+        for _, row in self.data.iterrows():
+            labels = row.iloc[2:].values.astype(int)  # Columnes d'emocions
+            sorted_indices = labels.argsort()[-2:]  # Índexs de les dues emocions amb més vots
+            most_voted = sorted_indices[-1]
+            second_most_voted = sorted_indices[-2]
+            
+            # Comprovem si el més votat supera al segon més votat per almenys un 30% (3 vots)
+            if labels[most_voted] >= labels[second_most_voted] + 3:
+                dominant_emotion = emotion_labels[most_voted]
+            else:
+                dominant_emotion = "Unknown"
+            
+            emotion_counts[dominant_emotion] += 1  # Comptem aquesta emoció
 
-# Exemple d'ús
+        return emotion_counts
+
+# Comptar per cada subcarpeta
 if __name__ == "__main__":
-    # Transformacions per a les imatges
-    transform = transforms.Compose([
-        transforms.Resize((224, 224)),  # Redimensionem a 224x224 (estàndard ResNet)
-        transforms.ToTensor(),         # Convertim a tensor
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),  # Normalització
-    ])
+    data_dir = "D:/Clase/UAB/TFG/FERPlus"
+    subsets = ["Train", "Valid", "Test"]
     
-    # Creem el dataset per al conjunt de prova
-    dataset = FERPlusDataset("D:/Clase/UAB/TFG/FERPlus", "Test", transform=transform)
-    
-    # Mostrem la mida del conjunt i una mostra
-    print(f"Nombre d'imatges al conjunt de prova: {len(dataset)}")
-    
-    # Primera imatge i etiquetes
-    img, label = dataset[0]
-    print(f"Forma de la imatge: {img.shape}")
-    print(f"Etiquetes: {label}")
+    for subset in subsets:
+        print(f"\nSubcarpeta: {subset}")
+        dataset = FERPlusDataset(data_dir, subset)
+        emotion_counts = dataset.count_images_per_emotion()
+        
+        # Mostrem el nombre d'imatges per emoció dominant
+        for emotion, count in emotion_counts.items():
+            print(f"{emotion}: {count} imatges")
