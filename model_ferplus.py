@@ -174,7 +174,7 @@ def train_model(data_dir, batch_size=32, lr=0.001, num_epochs=10, dropout_rate=0
 # Exemple d'ús
 if __name__ == "__main__":
     data_dir = "D:/Clase/UAB/TFG/FERPlus"
-    modes = ["default", "threshold", "all"]
+    modes = ["threshold", "all","default"]
     configs = [
         {"batch_size": 64, "lr": 0.0001, "num_epochs": 50, "dropout_rate": 0.3}
     ]
