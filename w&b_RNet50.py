@@ -3,7 +3,7 @@ import pandas as pd
 from PIL import Image
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, models
-from torchvision.models import ResNet18_Weights
+from torchvision.models import ResNet50_Weights
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -48,7 +48,7 @@ class FERPlusDataset(Dataset):
 class FERPlusResNet(nn.Module):
     def __init__(self, num_classes=10, dropout_rate=0.5):
         super(FERPlusResNet, self).__init__()
-        self.model = models.resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
+        self.model = models.resnet50(weights=ResNet50_Weights.IMAGENET1K_V1)
         in_features = self.model.fc.in_features
         self.model.fc = nn.Sequential(
             nn.Dropout(p=dropout_rate),
@@ -61,7 +61,7 @@ class FERPlusResNet(nn.Module):
 
 # Funció d'entrenament per multilabel amb probabilitats
 def train(config=None):
-    wandb.init(project="ferplus-ResNet18", config=config)
+    wandb.init(project="ferplus-ResNet50", config=config)
     config = wandb.config
 
     data_dir = "D:/Clase/UAB/TFG/FERPlus"
@@ -181,5 +181,5 @@ if __name__ == "__main__":
         }
     }
 
-    sweep_id = wandb.sweep(sweep_config, project="ferplus-ResNet18")
+    sweep_id = wandb.sweep(sweep_config, project="ferplus-ResNet50")
     wandb.agent(sweep_id, train)
