@@ -12,6 +12,7 @@ from tqdm import tqdm
 import wandb
 from sklearn.metrics import confusion_matrix, accuracy_score, classification_report
 
+
 # Dataset FERPlus amb suport per a probabilitats
 class FERPlusDataset(Dataset):
     def __init__(self, data_dir, subset, transform=None):
@@ -19,7 +20,7 @@ class FERPlusDataset(Dataset):
         self.subset = subset
         self.transform = transform
         self.labels_path = os.path.join(data_dir, f"FER2013{self.subset}", "label.csv")
-        self.data = pd.read_csv(self.labels_path, header=None)  # Llegeix sense capçalera
+        self.data = pd.read_csv(self.labels_path, header=None)
         self.emotion_labels = [
             "Neutral", "Happiness", "Surprise", "Sadness",
             "Anger", "Disgust", "Fear", "Contempt", "Unknown", "Non-Face"
@@ -44,6 +45,7 @@ class FERPlusDataset(Dataset):
 
         return img_name, image, probabilities
 
+
 # Model ResNet adaptat per a prediccions de probabilitats
 class FERPlusResNet(nn.Module):
     def __init__(self, num_classes=10, dropout_rate=0.5):
@@ -59,7 +61,30 @@ class FERPlusResNet(nn.Module):
     def forward(self, x):
         return self.model(x)
 
-# Funció d'entrenament per multilabel amb probabilitats
+
+# Classe de parada anticipada
+class EarlyStopping:
+    def __init__(self, patience=5, delta=0, verbose=False):
+        self.patience = patience
+        self.delta = delta
+        self.verbose = verbose
+        self.counter = 0
+        self.best_loss = None
+        self.early_stop = False
+
+    def __call__(self, val_loss):
+        if self.best_loss is None or val_loss < self.best_loss - self.delta:
+            self.best_loss = val_loss
+            self.counter = 0
+        else:
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.early_stop = True
+                if self.verbose:
+                    print("Parada anticipada: No hi ha millores durant", self.patience, "èpoques.")
+
+
+# Funció d'entrenament
 def train(config=None):
     wandb.init(project="ferplus-ResNet18", config=config)
     config = wandb.config
@@ -88,7 +113,8 @@ def train(config=None):
     optimizer = optim.Adam(model.parameters(), lr=config.lr)
     scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=config.T_0, T_mult=config.T_mult)
 
-    y_true, y_pred = [], []
+    # Inicialitzar parada anticipada
+    early_stopping = EarlyStopping(patience=5, delta=0.01, verbose=True)
 
     for epoch in range(config.num_epochs):
         model.train()
@@ -106,7 +132,6 @@ def train(config=None):
 
         model.eval()
         val_loss = 0.0
-        epoch_y_true, epoch_y_pred = [], []
         with torch.no_grad():
             for _, images, labels in tqdm(valid_loader, desc="Validació"):
                 images, labels = images.to(device), labels.to(device)
@@ -114,55 +139,24 @@ def train(config=None):
                 loss = criterion(outputs, labels)
                 val_loss += loss.item()
 
-                # Per avaluació
-                epoch_y_true.extend(labels.cpu().numpy().argmax(axis=1))
-                epoch_y_pred.extend(outputs.cpu().numpy().argmax(axis=1))
-
-        y_true.extend(epoch_y_true)
-        y_pred.extend(epoch_y_pred)
-
         train_loss = running_loss / len(train_loader)
         val_loss = val_loss / len(valid_loader)
 
-        # Calcular mètriques
-        acc = accuracy_score(epoch_y_true, epoch_y_pred)
-        cm = confusion_matrix(epoch_y_true, epoch_y_pred)
-        report = classification_report(epoch_y_true, epoch_y_pred, target_names=train_dataset.emotion_labels, output_dict=True, zero_division=0)
-        macro_avg = report['macro avg']['f1-score'] if 'macro avg' in report else 0.0
-        micro_avg = report['weighted avg']['f1-score'] if 'weighted avg' in report else 0.0
+        # Comprovar parada anticipada
+        early_stopping(val_loss)
+        if early_stopping.early_stop:
+            print(f"Entrenament aturat anticipadament a l'època {epoch + 1}")
+            break
 
-        # Registre a wandb
         wandb.log({
             "Train Loss": train_loss,
             "Validation Loss": val_loss,
             "Learning Rate": optimizer.param_groups[0]['lr'],
-            "Accuracy": acc,
-            "Confusion Matrix": wandb.plot.confusion_matrix(
-                probs=None,
-                y_true=epoch_y_true,
-                preds=epoch_y_pred,
-                class_names=train_dataset.emotion_labels
-            ),
-            "Macro Accuracy": macro_avg,
-            "Micro Accuracy": micro_avg
+            "Epoch": epoch + 1
         })
 
-        print(f"Època {epoch + 1}: Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, Acc: {acc:.4f}")
+        print(f"Època {epoch + 1}: Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
 
-    # Avaluació final
-    final_acc = accuracy_score(y_true, y_pred)
-    final_cm = confusion_matrix(y_true, y_pred)
-    final_report = classification_report(y_true, y_pred, target_names=train_dataset.emotion_labels, output_dict=True, zero_division=0)
-    wandb.log({
-        "Final Accuracy": final_acc,
-        "Final Confusion Matrix": wandb.plot.confusion_matrix(
-            probs=None,
-            y_true=y_true,
-            preds=y_pred,
-            class_names=train_dataset.emotion_labels
-        ),
-        "Class Distribution": {label: sum(1 for y in y_true if y == idx) for idx, label in enumerate(train_dataset.emotion_labels)}
-    })
 
 if __name__ == "__main__":
     sweep_config = {
@@ -173,11 +167,11 @@ if __name__ == "__main__":
         },
         'parameters': {
             'batch_size': {'values': [128]},
-            'lr': {'values': [0.001, 0.0005]},
-            'num_epochs': {'value': 10},
+            'lr': {'values': [0.01]},
+            'num_epochs': {'value': 100},
             'dropout_rate': {'values': [0.3, 0.5]},
-            'T_0': {'values': [5, 10]},
-            'T_mult': {'values': [1, 2]},
+            'T_0': {'values': [10]},
+            'T_mult': {'values': [2,3]},
         }
     }
 
